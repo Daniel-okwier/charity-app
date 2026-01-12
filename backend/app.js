@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs'); 
 require('dotenv').config();
 
+// Import routes
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
@@ -16,49 +17,52 @@ const { createInitialAdmin } = require('./services/authService');
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-app.use(cors());
+// MIDDLEWARE
+// ALLOWED_ORIGIN should be your Vercel URL (added in Render Env Vars)
+app.use(cors({
+  origin: process.env.ALLOWED_ORIGIN || '*', 
+  credentials: true
+}));
+
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// New initialization logic: Listen FIRST, then setup DB
-const initApp = async () => {
-  // 1. Tell Render we are alive by binding the port immediately
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Server binding successful. Listening on port ${PORT}`);
-  });
-
-  try {
-    // 2. Setup local directories
-    const uploadPath = path.join(__dirname, 'uploads');
-    if (!fs.existsSync(uploadPath)) {
-      fs.mkdirSync(uploadPath, { recursive: true });
-    }
-
-    // 3. Initialize Database in the background
-    console.log('⏳ Initializing database tables...');
-    await initDb();
-    
-    console.log('⏳ Setting up initial admin...');
-    await createInitialAdmin(); 
-    
-    console.log('✅ All systems ready');
-  } catch (error) {
-    // We log the error but don't crash, so the server stays "up" on Render
-    console.error('⚠️ Background initialization failed:', error.message);
-  }
-};
-
+// ROUTES
 app.use('/auth', authRoutes);
 app.use('/users', userRoutes);
 app.use('/payments', paymentRoutes);
 app.use('/admin', adminRoutes);
 
 app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok', database: 'connected' });
+  res.status(200).json({ status: 'ok', timestamp: new Date() });
 });
 
-// Start the sequence
+// STARTUP LOGIC (Port First for Render)
+const initApp = async () => {
+  // 1. Open Port Immediately
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Server binding successful! Port: ${PORT}`);
+  });
+
+  try {
+    // 2. Folder Setup
+    const uploadPath = path.join(__dirname, 'uploads');
+    if (!fs.existsSync(uploadPath)) {
+      fs.mkdirSync(uploadPath, { recursive: true });
+    }
+
+    // 3. Database Setup in Background
+    console.log('⏳ Running background DB initialization...');
+    await initDb();
+    await createInitialAdmin(); 
+    console.log('✅ Full system initialization complete');
+
+  } catch (error) {
+    console.error('⚠️ Startup Warning:', error.message);
+  }
+};
+
 initApp();
 
 module.exports = app;
