@@ -2,24 +2,20 @@ const mysql = require('mysql2/promise');
 const bcrypt = require('bcrypt');
 require('dotenv').config(); 
 
-// Create a database connection pool
-// Using DB_PASSWORD to match the standard Render variable name
+// Connection pool with Aiven-specific settings
 const pool = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD, 
+  password: process.env.DB_PASSWORD, // Ensure this matches your Render Env Var name
   database: process.env.DB_NAME,
   port: process.env.DB_PORT || 20990,
   ssl: {
-    rejectUnauthorized: false
+    rejectUnauthorized: false // Required for Aiven
   },
   waitForConnections: true,
-  connectionLimit: 5, // Lower limit is safer for Aiven free tier
-  connectTimeout: 30000, // 30 seconds
+  connectionLimit: 5, // Lower limit is safer for shared/free tiers
+  connectTimeout: 30000,
 });
-
-// REMOVED: testDatabaseConnection() call from here. 
-// Startup tests are now handled in app.js or dbConfig.
 
 // Check if user exists by email
 const checkIfUserExists = async (email) => {
@@ -27,7 +23,7 @@ const checkIfUserExists = async (email) => {
     const [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
     return rows.length > 0;
   } catch (error) {
-    console.error('Error checking if user exists:', error);
+    console.error('Error checking user existence:', error.message);
     throw error;
   }
 };
@@ -36,7 +32,6 @@ const checkIfUserExists = async (email) => {
 const createUser = async (userData, profilePhotoPath) => {
   try {
     if (!userData.password) throw new Error('Password is required');
-
     const hashedPassword = await bcrypt.hash(userData.password, 10);
     const roleId = 2; 
     
@@ -58,7 +53,7 @@ const createUser = async (userData, profilePhotoPath) => {
     const [user] = await pool.query('SELECT * FROM users WHERE id = ?', [result.insertId]);
     return user[0];
   } catch (error) {
-    console.error('Error creating user:', error);
+    console.error('Error creating user:', error.message);
     throw error;
   }
 };
@@ -72,10 +67,8 @@ const logIn = async (userData) => {
     );
 
     if (users.length === 0) return { status: 'fail', message: 'User not found' };
-
     const user = users[0];
     const isPasswordValid = await bcrypt.compare(userData.password, user.password);
-
     if (!isPasswordValid) return { status: 'fail', message: 'Invalid password' };
 
     return {
@@ -92,7 +85,7 @@ const logIn = async (userData) => {
       }
     };
   } catch (error) {
-    console.error('Error logging in:', error);
+    console.error('Error logging in:', error.message);
     throw error;
   }
 };
@@ -102,7 +95,7 @@ const createInitialAdmin = async () => {
   try {
     const [admins] = await pool.query('SELECT * FROM users WHERE roleId = 1 LIMIT 1');
     if (admins.length > 0) {
-      console.log('ℹ️ Admin already exists');
+      console.log('ℹ️ Admin user already exists');
       return;
     }
 
@@ -119,7 +112,6 @@ const createInitialAdmin = async () => {
        VALUES (?, ?, ?, ?, ?, ?)`,
       ['Admin', 'User', adminEmail, hashedPassword, 1, 0]
     );
-
     console.log('✅ Initial admin user created successfully');
   } catch (error) {
     console.error('❌ Error creating initial admin:', error.message);
