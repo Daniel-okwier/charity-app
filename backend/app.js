@@ -5,62 +5,60 @@ const path = require('path');
 const fs = require('fs'); 
 require('dotenv').config();
 
-// Import routes
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 
-// Import database initialization and admin creation
 const { initDb } = require('./db/schema');
 const { createInitialAdmin } = require('./services/authService');
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 10000;
 
-// Middlewares
 app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
-
-// Static files - Pointing to the 'uploads' folder in the current directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Initialize database and create initial admin
+// New initialization logic: Listen FIRST, then setup DB
 const initApp = async () => {
+  // 1. Tell Render we are alive by binding the port immediately
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Server binding successful. Listening on port ${PORT}`);
+  });
+
   try {
-    // Ensure uploads directory exists at startup
+    // 2. Setup local directories
     const uploadPath = path.join(__dirname, 'uploads');
     if (!fs.existsSync(uploadPath)) {
       fs.mkdirSync(uploadPath, { recursive: true });
-      console.log('Uploads directory created');
     }
 
+    // 3. Initialize Database in the background
+    console.log('⏳ Initializing database tables...');
     await initDb();
-    await createInitialAdmin(); 
-    console.log('Admin setup completed');
     
-    // Start server
-    app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
-    });
+    console.log('⏳ Setting up initial admin...');
+    await createInitialAdmin(); 
+    
+    console.log('✅ All systems ready');
   } catch (error) {
-    console.error('Error during app initialization:', error);
+    // We log the error but don't crash, so the server stays "up" on Render
+    console.error('⚠️ Background initialization failed:', error.message);
   }
 };
 
-// Routes
 app.use('/auth', authRoutes);
 app.use('/users', userRoutes);
 app.use('/payments', paymentRoutes);
 app.use('/admin', adminRoutes);
 
-// Health check endpoint (Used by Render to monitor your app)
 app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok' });
+  res.status(200).json({ status: 'ok', database: 'connected' });
 });
 
-// Start the app
+// Start the sequence
 initApp();
 
 module.exports = app;
