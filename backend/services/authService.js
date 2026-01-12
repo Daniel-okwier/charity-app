@@ -3,29 +3,23 @@ const bcrypt = require('bcrypt');
 require('dotenv').config(); 
 
 // Create a database connection pool
+// Using DB_PASSWORD to match the standard Render variable name
 const pool = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
-  password: process.env.DB_PASS,
+  password: process.env.DB_PASSWORD, 
   database: process.env.DB_NAME,
-  connectionLimit: 10,
-  connectTimeout: 30000,
+  port: process.env.DB_PORT || 20990,
+  ssl: {
+    rejectUnauthorized: false
+  },
+  waitForConnections: true,
+  connectionLimit: 5, // Lower limit is safer for Aiven free tier
+  connectTimeout: 30000, // 30 seconds
 });
 
-// Check if pool is defined
-console.log('Database pool:', pool);
-
-// Test the database connection
-const testDatabaseConnection = async () => {
-  try {
-    const [rows] = await pool.query('SELECT 1');
-    console.log('Database connection test successful:', rows);
-  } catch (error) {
-    console.error('Database connection test failed:', error);
-  }
-};
-
-testDatabaseConnection();
+// REMOVED: testDatabaseConnection() call from here. 
+// Startup tests are now handled in app.js or dbConfig.
 
 // Check if user exists by email
 const checkIfUserExists = async (email) => {
@@ -38,42 +32,26 @@ const checkIfUserExists = async (email) => {
   }
 };
 
-
 // Create a new user
 const createUser = async (userData, profilePhotoPath) => {
   try {
-    // Check if the password is provided
-    if (!userData.password) {
-      throw new Error('Password is required');
-    }
+    if (!userData.password) throw new Error('Password is required');
 
-    // Hash the password
     const hashedPassword = await bcrypt.hash(userData.password, 10);
     const roleId = 2; 
     
     const [result] = await pool.query(
       `INSERT INTO users 
        (firstName, middleName, lastName, email, password, phone, age, sex, 
-        educationalStatus, profession, country, region, zone, city, profilePhotoPath, donationAmount, roleId)
+       educationalStatus, profession, country, region, zone, city, profilePhotoPath, donationAmount, roleId)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        userData.firstName,
-        userData.middleName || null,
-        userData.lastName,
-        userData.email,
-        hashedPassword,
-        userData.phone || null,
-        userData.age || null,
-        userData.sex || null,
-        userData.educationalStatus || null,
-        userData.profession || null,
-        userData.country || null,
-        userData.region || null,
-        userData.zone || null,
-        userData.city || null,
-        profilePhotoPath,
-        userData.donationAmount || 0,
-        roleId
+        userData.firstName, userData.middleName || null, userData.lastName,
+        userData.email, hashedPassword, userData.phone || null,
+        userData.age || null, userData.sex || null, userData.educationalStatus || null,
+        userData.profession || null, userData.country || null, userData.region || null,
+        userData.zone || null, userData.city || null, profilePhotoPath,
+        userData.donationAmount || 0, roleId
       ]
     );
 
@@ -93,22 +71,12 @@ const logIn = async (userData) => {
       [userData.email]
     );
 
-    if (users.length === 0) {
-      return {
-        status: 'fail',
-        message: 'User not found'
-      };
-    }
+    if (users.length === 0) return { status: 'fail', message: 'User not found' };
 
     const user = users[0];
     const isPasswordValid = await bcrypt.compare(userData.password, user.password);
 
-    if (!isPasswordValid) {
-      return {
-        status: 'fail',
-        message: 'Invalid password'
-      };
-    }
+    if (!isPasswordValid) return { status: 'fail', message: 'Invalid password' };
 
     return {
       status: 'success',
@@ -129,13 +97,12 @@ const logIn = async (userData) => {
   }
 };
 
-// Create initial admin user if it doesn't exist
+// Create initial admin user
 const createInitialAdmin = async () => {
   try {
     const [admins] = await pool.query('SELECT * FROM users WHERE roleId = 1 LIMIT 1');
-    
     if (admins.length > 0) {
-      console.log('Admin already exists');
+      console.log('ℹ️ Admin already exists');
       return;
     }
 
@@ -143,37 +110,20 @@ const createInitialAdmin = async () => {
     const adminPassword = process.env.ADMIN_PASSWORD;
 
     const emailExists = await checkIfUserExists(adminEmail);
-    if (emailExists) {
-      console.log('Email already in use');
-      return;
-    }
+    if (emailExists) return;
 
     const hashedPassword = await bcrypt.hash(adminPassword, 10);
     
     await pool.query(
-      `INSERT INTO users 
-       (firstName, lastName, email, password, roleId, isPendingPayment)
+      `INSERT INTO users (firstName, lastName, email, password, roleId, isPendingPayment)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      [
-        'Admin',
-        'User',
-        adminEmail,
-        hashedPassword,
-        1, 
-        0  
-      ]
+      ['Admin', 'User', adminEmail, hashedPassword, 1, 0]
     );
 
-    console.log('Initial admin user created successfully');
+    console.log('✅ Initial admin user created successfully');
   } catch (error) {
-    console.error('Error creating initial admin:', error);
-    throw error;
+    console.error('❌ Error creating initial admin:', error.message);
   }
 };
 
-module.exports = {
-  checkIfUserExists,
-  createUser,
-  logIn,
-  createInitialAdmin
-};
+module.exports = { pool, checkIfUserExists, createUser, logIn, createInitialAdmin };
