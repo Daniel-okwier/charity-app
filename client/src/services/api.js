@@ -1,8 +1,10 @@
 import axios from 'axios';
 
-// Base URL for API calls - customize this based on your backend server configuration
-const API_URL = 'http://localhost:5000';
-
+/**
+ * Base URL for API calls. 
+ * In Vite, environment variables must start with VITE_
+ */
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 const api = axios.create({
   baseURL: API_URL,
@@ -16,9 +18,13 @@ api.interceptors.request.use(
   (config) => {
     const user = localStorage.getItem('user');
     if (user) {
-      const { token } = JSON.parse(user);
-      if (token) {
-        config.headers['x-access-token'] = token;
+      try {
+        const { token } = JSON.parse(user);
+        if (token) {
+          config.headers['x-access-token'] = token;
+        }
+      } catch (e) {
+        console.error("Error parsing user from localStorage", e);
       }
     }
     return config;
@@ -28,24 +34,14 @@ api.interceptors.request.use(
   }
 );
 
-// Response interceptor for error handling
+// Response interceptor for error handling (e.g. 401 Unauthorized)
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    const originalRequest = error.config;
-    
-    // Handle token expiration
-    if (
-      error.response &&
-      error.response.status === 401 &&
-      !originalRequest._retry
-    ) {
-      // Handle token refresh or logout user
+    if (error.response && error.response.status === 401) {
       localStorage.removeItem('user');
       window.location.href = '/login';
-      return Promise.reject(error);
     }
-    
     return Promise.reject(error);
   }
 );
